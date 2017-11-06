@@ -1,17 +1,32 @@
 # rdf-graph-search-with-solr-custom-streaming-expression
 Given a RDF graph indexed in Solr, a custom streaming expression was implemented in this project to find connections between any two entities in the graph
 
-## Architecture and Features:
+## 1. Architecture and Features:
 - Merges search with parallel computing (paralelly computes query in all shards and merges the results).
 - Fully Streaming (no big buffers).
 - SolrCloud aware.
 
 ![image](https://user-images.githubusercontent.com/22542670/32426660-f329f0a0-c2e1-11e7-8bb1-625b12407078.png)
 
-## Sample Data
+### 1.1 Query syntax:
+```markdown
+paths(<collectionName>, 
+      from="fromField->fromNode",
+      to="toField->toNode",
+      fl="<csv of fields to return per matching document>",
+      maxDepth="<maximum depth to go searching for toNode starting from fromNode>")
+```
+
+## 2. Demo Time
+1. Let's index some sample data about billgates and microsoft 
+2. Once the index is ready, search using paths() query to find all the paths connecting these two entities in this graph.
+
+Let me walk you step-by-step starting from index to query and see the results
+
+### 2.1 Sample Data
 <img width="500" src="https://user-images.githubusercontent.com/22542670/32425782-9b96cc6a-c2db-11e7-986b-1cea68ca6548.png"/>
 
-## Sample Query
+### 2.2 Sample Query
 Find all connections between BillGates and Microsoft
 
 ```markdown
@@ -22,10 +37,45 @@ Find all connections between BillGates and Microsoft
 ```
 ![image](https://user-images.githubusercontent.com/22542670/32426785-c62bc4ba-c2e2-11e7-9379-8055932d67a3.png)
 
-## Sample Query Results
+### 2.3 Sample Query Results
 Found 4 different paths connecting billgates and microsoft
 
 <img width="574" src="https://user-images.githubusercontent.com/22542670/32426110-f591ac7e-c2dd-11e7-886f-f2a2d4b2ceee.png"/>
 
+## 3. Compile and Run  
+### 3.1 Generate jar file
+`mvn clean package` generates jar file.
 
-      
+### 3.2 Create .system collection
+```markdown
+curl 'http://localhost:8983/solr/admin/collections?action=CREATE&name=.system'
+curl http://localhost:8983/solr/.system/config -d '{"set-user-property": {"update.autoCreateFields":"false"}}'
+```
+### 3.3 Upload jar file to .system collection
+```markdown
+curl -X POST -H 'Content-Type: application/octet-stream' --data-binary @rdf-graph-search-with-solr-custom-streaming-expression-1.0-SNAPSHOT.jar 'http://localhost:8983/solr/.system/blob/test'
+```
+
+### 3.4 Verify that this jar is uploaded under the name 'test' in .system collection
+```markdown
+curl 'http://localhost:8983/solr/.system/blob?omitHeader=true'
+```
+
+### 3.5 Add our jar as runtime-lib to test collection
+```markdown
+curl 'http://localhost:8983/solr/test/config' -H 'Content-type:application json' -d '{   "add-runtimelib": { "name":"test", "version":1 }}'
+```
+### 3.6 Register our paths() custom streaming expression with test collection
+```markdown
+curl 'http://localhost:8983/solr/rdf/config' -H 'Content-type:application/json' -d '{
+  "create-expressible": {
+    "name": "paths",
+    "class": "com.solr.custom.streaming.PathsStreamingExpression",
+    "runtimeLib": true
+  }
+}'
+```
+
+Tht's it!! Now, navigate to "stream" tab of test collection in SolrAdmin page and run your query..
+
+
