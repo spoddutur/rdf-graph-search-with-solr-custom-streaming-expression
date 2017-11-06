@@ -8,7 +8,7 @@ A custom query `paths()` was implemented as streaming expression in this project
 Let me walk you step-by-step starting from index to query and see the results
 
 ### 1.1 Sample Data
-<img width="500" src="https://user-images.githubusercontent.com/22542670/32425782-9b96cc6a-c2db-11e7-986b-1cea68ca6548.png"/>
+<img width="700" src="https://user-images.githubusercontent.com/22542670/32425782-9b96cc6a-c2db-11e7-986b-1cea68ca6548.png"/>
 
 ### 1.2 Sample Query
 Find all connections between BillGates and Microsoft
