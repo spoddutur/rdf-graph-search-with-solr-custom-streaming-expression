@@ -24,7 +24,7 @@ Find all connections between BillGates and Microsoft
 ### 1.3 Sample Query Results
 Found 4 different paths connecting billgates and microsoft
 
-<img width="574" src="https://user-images.githubusercontent.com/22542670/32426110-f591ac7e-c2dd-11e7-886f-f2a2d4b2ceee.png"/>
+<img width="574" src="https://user-images.githubusercontent.com/22542670/32427498-bbf3f374-c2e6-11e7-85be-d83f75679c6e.png"/>
 
 ## 2. Architecture and Features:
 - Merges search with parallel computing (paralelly computes query in all shards and merges the results).
