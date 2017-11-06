@@ -9,7 +9,7 @@ Given a RDF graph indexed in Solr, a custom streaming expression was implemented
 ![image](https://user-images.githubusercontent.com/22542670/32426660-f329f0a0-c2e1-11e7-8bb1-625b12407078.png)
 
 ## Sample Data
-<imd width="500" src="https://user-images.githubusercontent.com/22542670/32425782-9b96cc6a-c2db-11e7-986b-1cea68ca6548.png"/>
+<img width="500" src="https://user-images.githubusercontent.com/22542670/32425782-9b96cc6a-c2db-11e7-986b-1cea68ca6548.png"/>
 
 ## Sample Query
 Find all connections between BillGates and Microsoft
@@ -25,7 +25,7 @@ Find all connections between BillGates and Microsoft
 ## Sample Query Results
 Found 4 different paths connecting billgates and microsoft
 
-<img height="200" width="574" src="https://user-images.githubusercontent.com/22542670/32426110-f591ac7e-c2dd-11e7-886f-f2a2d4b2ceee.png"/>
+<img width="574" src="https://user-images.githubusercontent.com/22542670/32426110-f591ac7e-c2dd-11e7-886f-f2a2d4b2ceee.png"/>
 
 
       
