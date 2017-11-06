@@ -1,10 +1,12 @@
 # rdf-graph-search-with-solr-custom-streaming-expression
 Given a RDF graph indexed in Solr, a custom streaming expression was implemented in this project to find connections between any two entities in the graph
 
-## Features:
-- Merges search with parallel computing.
+## Architecture and Features:
+- Merges search with parallel computing (paralelly computes query in all shards and merges the results).
 - Fully Streaming (no big buffers).
 - SolrCloud aware.
+
+![image](https://user-images.githubusercontent.com/22542670/32426660-f329f0a0-c2e1-11e7-8bb1-625b12407078.png)
 
 ## Sample Data
 ![image](https://user-images.githubusercontent.com/22542670/32425782-9b96cc6a-c2db-11e7-986b-1cea68ca6548.png)
