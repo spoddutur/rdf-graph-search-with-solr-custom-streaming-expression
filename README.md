@@ -18,15 +18,15 @@ Find all connections between BillGates and Microsoft
       paths(rdf, 
       from="src_s->billgates",
       to="dst_s->microsoft",
-      fl="src_s,dst_s,relation_s")```
-      
+      fl="src_s,dst_s,relation_s")
+```
 ![image](https://user-images.githubusercontent.com/22542670/32426077-af99e984-c2dd-11e7-953f-b85d5e368061.png)
 
 
 ## Sample Query Results
 Found 4 different paths connecting billgates and microsoft
 
-![image](https://user-images.githubusercontent.com/22542670/32426110-f591ac7e-c2dd-11e7-886f-f2a2d4b2ceee.png)
+<img height="200" width="574" src="https://user-images.githubusercontent.com/22542670/32426110-f591ac7e-c2dd-11e7-886f-f2a2d4b2ceee.png"/>
 
 
       
