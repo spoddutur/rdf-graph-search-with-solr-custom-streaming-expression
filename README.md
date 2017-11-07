@@ -1,5 +1,5 @@
 # rdf-graph-search-with-solr-custom-streaming-expression
-- A custom query `paths()` was implemented as streaming expression in this project to find connections between any two entities in the graph. (Assuming that RDF graph is indexed in solr and using solr 6.x).
+- Given a RDF graph indexed in Solr 6.x, a custom streaming query `paths()`was implemented to find connections between any two entities in the RDF graph.
 - `paths(from, to)` query will return all the paths connecting 'from' and 'to' as per solr index.
 - Returns results in sub-second :)..
 
