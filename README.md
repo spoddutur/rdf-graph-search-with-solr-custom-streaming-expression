@@ -30,7 +30,7 @@ Found 4 different paths connecting billgates and microsoft
 
 ## 2. Architecture and Features:
 - Merges search with parallel computing (paralelly computes query in all shards and merges the results).
-- Fully Streaming (no big buffers).
+- Fully Streaming.
 - SolrCloud aware.
 
 ![image](https://user-images.githubusercontent.com/22542670/32426660-f329f0a0-c2e1-11e7-8bb1-625b12407078.png)
