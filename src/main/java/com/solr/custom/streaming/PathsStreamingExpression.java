@@ -3,6 +3,7 @@ package com.solr.custom.streaming;
 import com.solr.custom.streaming.model.Path;
 import com.solr.custom.streaming.model.Paths;
 import com.solr.custom.streaming.model.TupleRecord;
+import org.apache.solr.client.solrj.io.SolrClientCache;
 import org.apache.solr.client.solrj.io.Tuple;
 import org.apache.solr.client.solrj.io.comp.StreamComparator;
 import org.apache.solr.client.solrj.io.stream.CloudSolrStream;
@@ -25,6 +26,7 @@ public class PathsStreamingExpression extends TupleStream implements Expressible
   private String toField;
   private String fl;
   private int maxDepth;
+  private int maxThresholdForFloodFill = 100;
 
   private StreamExpression expression;
   private StreamFactory factory;
@@ -94,7 +96,7 @@ public class PathsStreamingExpression extends TupleStream implements Expressible
     // maxDepth
     StreamExpressionNamedParameter maxDepthExpression = factory.getNamedOperand(expression, "maxDepth");
     if (maxDepthExpression == null) {
-      this.maxDepth = 10;
+      this.maxDepth = 3;
     } else {
       try {
         this.maxDepth = Integer.parseInt(((StreamExpressionValue) maxDepthExpression.getParameter()).getValue());
@@ -120,45 +122,82 @@ public class PathsStreamingExpression extends TupleStream implements Expressible
     return null;
   }
 
+  public static void main(String[] args) throws Exception {
+    StreamFactory sf = new StreamFactory().withCollectionZkHost("test", "localhost:9983");
+    StreamExpression expr = new StreamExpression("paths")
+            .withParameter((StreamExpressionParameter) (new StreamExpressionValue("test")))
+            .withParameter(new StreamExpressionNamedParameter("from", "src_s->590"))
+            .withParameter(new StreamExpressionNamedParameter("to", "dst_s->united states"))
+            .withParameter(new StreamExpressionNamedParameter("fl", "src_s,relation_s,dst_s"));
+
+    StreamContext sc = new StreamContext();
+    sc.setStreamFactory(sf);
+    SolrClientCache scc = new SolrClientCache();
+    scc.getCloudSolrClient("localhost:9983");
+    sc.setSolrClientCache(scc);
+
+    PathsStreamingExpression pse = new PathsStreamingExpression(expr, sf);
+    pse.setStreamContext(sc);
+    pse.open();
+  }
   @Override
   public void open() throws IOException {
 
     // Given from field and to field, from and to values, recursively search() till maxDepth iterations and build neighbourNodes.
     // NeighbourNodes information is then used to construct paths from 'fromNode' to 'toNode'.
     HashSet<String> parentNodes = new HashSet<String>();
+    HashSet<String> allVisited = new HashSet<String>();
     parentNodes.add(this.fromNode);
+    parentNodes.add(this.toNode);
     while(this.currentDepth < this.maxDepth && !parentNodes.isEmpty()) {
       CloudSolrStream stream = constructStream(parentNodes);
-      HashSet<Tuple> tuples = openAndReadStream(stream);
+      HashMap<String, HashSet<Tuple>> srcNodeToEdgesMap = openAndReadStream(parentNodes, stream);
+
+      allVisited.addAll(parentNodes);
       parentNodes.clear();
-      parentNodes.remove(this.toNode);
+      // parentNodes.remove(this.toNode);
 
       // parse edges and construct neighbours
-      for (Tuple tuple : tuples) {
-        String src = tuple.getString(this.fromField);
-        String dst = tuple.getString(this.toField);
+      for(String srcNode: srcNodeToEdgesMap.keySet()) {
+        HashSet<Tuple> edgesOfSrcNode = srcNodeToEdgesMap.get(srcNode);
+        boolean srcHasTooManyEdges = edgesOfSrcNode.size() >= maxThresholdForFloodFill;
+        for (Tuple tuple : edgesOfSrcNode) {
+          String from = tuple.getString(this.fromField);
+          String to = tuple.getString(this.toField);
 
-        parentNodes.add(dst);
-        if (this.neighbours.containsKey(src)) {
-          this.neighbours.get(src).add(new TupleRecord(tuple));
-        } else {
-          HashSet<TupleRecord> dstSet = new HashSet<TupleRecord>();
-          dstSet.add(new TupleRecord(tuple));
-          this.neighbours.put(src, dstSet);
+          // flood fill dst only if src is not a hot node (i.e., a node with too many links).
+          if(!srcHasTooManyEdges) {
+            String nextParentToVisit = srcNode.equals(from) ? to : from;
+            if(!allVisited.contains(nextParentToVisit)) {
+              parentNodes.add(nextParentToVisit);
+            }
+          }
+
+          if (this.neighbours.containsKey(srcNode)) {
+            this.neighbours.get(srcNode).add(new TupleRecord(tuple));
+          } else {
+            HashSet<TupleRecord> dstSet = new HashSet<TupleRecord>();
+            dstSet.add(new TupleRecord(tuple));
+            this.neighbours.put(srcNode, dstSet);
+          }
         }
       }
     }
 
     //////////// Got neighbours. Now construct graph paths from 'fromNode' to 'toNode' ////////////
 
-    HashMap<String, Paths> endNodeToItsLinks = new HashMap<String, Paths>();
+    System.out.println("Got neighbours" + this.neighbours);
+    // Build backward paths
+    HashMap<String, Paths> endNodeToItsBackwardLinks = new HashMap<String, Paths>();
     parentNodes.clear();
-    String src = this.fromNode;
+    allVisited.clear();
+    this.currentDepth = this.maxDepth;
     String dst = this.toNode;
-    parentNodes.add(src);
-
-    while(!parentNodes.isEmpty() && this.maxDepth-- > -1) {
+    String src = this.fromNode;
+    parentNodes.add(dst);
+    while(!parentNodes.isEmpty() && this.currentDepth-- > -1) {
       HashSet<String> newParents = new HashSet<String>();
+      allVisited.addAll(parentNodes);
       for (String parent: parentNodes) {
         // foreach child, add endNodeLink
         if(!this.neighbours.containsKey(parent)) {
@@ -166,47 +205,149 @@ public class PathsStreamingExpression extends TupleStream implements Expressible
         }
 
         for (Tuple childTuple: this.neighbours.get(parent)) {
-
-          String child = childTuple.getString(this.toField);
-          newParents.add(childTuple.getString(this.toField));
-          if(endNodeToItsLinks.containsKey(child)) {
-            Paths parentPaths = endNodeToItsLinks.get(parent);
-            Paths childPaths = endNodeToItsLinks.get(child);
-            for (Path path: parentPaths.getPaths()) {
-              childPaths.addPath(path.clone().add(childTuple));
-            }
-          } else {
-            if(endNodeToItsLinks.containsKey(parent)) {
-              Paths parentPaths = endNodeToItsLinks.get(parent);
-              Paths childPaths = new Paths();
-              for (Path path: parentPaths.getPaths()) {
+          // System.out.println("HERE:" + endNodeToItsBackwardLinks);
+          String toNode = childTuple.getString(this.toField);
+          String fromNode = childTuple.getString(this.fromField);
+          String srcNode = parent;
+          String dstNode = parent.equals(fromNode) ? toNode : fromNode;
+          String child = dstNode;
+          newParents.add(dstNode);
+          if(endNodeToItsBackwardLinks.containsKey(child)) {
+            Paths parentPaths = endNodeToItsBackwardLinks.get(parent);
+            Paths childPaths = endNodeToItsBackwardLinks.get(child);
+            if(parentPaths != null && parentPaths.getPaths().size() > 0) {
+              for (Path path : parentPaths.getPaths()) {
                 childPaths.addPath(path.clone().add(childTuple));
               }
-              endNodeToItsLinks.put(childTuple.getString(this.toField), childPaths);
+            }
+          } else {
+            if(endNodeToItsBackwardLinks.containsKey(parent)) {
+              Paths parentPaths = endNodeToItsBackwardLinks.get(parent);
+              Paths childPaths = new Paths();
+              if(parentPaths != null && parentPaths.getPaths().size() > 0) {
+                for (Path path : parentPaths.getPaths()) {
+                  childPaths.addPath(path.clone().add(childTuple));
+                }
+              }
+              endNodeToItsBackwardLinks.put(dstNode, childPaths);
             }
             else {
               // adding only child now. Earlier it was (parent, child)
               Path p = Path.getInstance(Stream.of(childTuple)
                       .collect(Collectors.toCollection(ArrayList<Tuple>::new)));
-              endNodeToItsLinks.put(childTuple.getString(this.toField), Paths.getInstance(p));
+              endNodeToItsBackwardLinks.put(dstNode, Paths.getInstance(p));
             }
           }
         }
+        /*if(!dst.equals(parent)) {
+          endNodeToItsBackwardLinks.remove(parent);
+        }*/
+      }
+      parentNodes.clear();
+      newParents.removeAll(allVisited);
+      newParents.remove(src);
+      parentNodes.addAll(newParents);
+    }
+
+    // build forward paths
+    HashMap<String, Paths> endNodeToItsForwardLinks = new HashMap<String, Paths>();
+    parentNodes.clear();
+    parentNodes.add(src);
+
+    while(!parentNodes.isEmpty() && this.maxDepth-- > -1) {
+      HashSet<String> newParents = new HashSet<String>();
+      for (String parent: parentNodes) {
+
+        boolean hasBackwardLink = endNodeToItsBackwardLinks.containsKey(parent) && endNodeToItsBackwardLinks.get(parent).getPaths() != null;
+        boolean hasForwardLink = this.neighbours.containsKey(parent);
+
+        // foreach child, add endNodeLink
+        if (!hasBackwardLink && !hasForwardLink) {
+          continue;
+        }
+
+        if (hasBackwardLink) {
+          Paths parentPaths = endNodeToItsForwardLinks.get(parent);
+
+          // init dst paths
+          Paths dstPaths;
+          if(endNodeToItsForwardLinks.containsKey(dst)) {
+            dstPaths = endNodeToItsForwardLinks.get(dst);
+          } else {
+            dstPaths = new Paths();
+          }
+
+          for (Path backwardPathFromDstToParent : endNodeToItsBackwardLinks.get(parent).getPaths()) {
+            if(parentPaths != null && parentPaths.getPaths() !=null && parentPaths.getPaths().size() >0) {
+              for (Path path : parentPaths.getPaths()) {
+                dstPaths.addPath(path.clone().addAll(backwardPathFromDstToParent.getNodes()));
+              }
+              endNodeToItsForwardLinks.put(dst, dstPaths);
+            }
+          }
+        }
+
+        if(hasForwardLink) {
+          for (Tuple childTuple : this.neighbours.get(parent)) {
+
+            String toNode = childTuple.getString(this.toField);
+            String fromNode = childTuple.getString(this.fromField);
+            String srcNode = parent;
+            String dstNode = parent.equals(fromNode) ? toNode : fromNode;
+            String child = dstNode;
+            newParents.add(childTuple.getString(this.toField));
+            if (endNodeToItsForwardLinks.containsKey(child)) {
+              Paths parentPaths = endNodeToItsForwardLinks.get(parent);
+              Paths childPaths = endNodeToItsForwardLinks.get(child);
+              if(parentPaths == null) {
+                childPaths.addPath(new Path().add(childTuple));
+              } else {
+                if(parentPaths != null && parentPaths.getPaths() !=null && parentPaths.getPaths().size() >0) {
+                  for (Path path : parentPaths.getPaths()) {
+                    childPaths.addPath(path.clone().add(childTuple));
+                  }
+                }
+              }
+            } else {
+              if (endNodeToItsForwardLinks.containsKey(parent)) {
+                Paths parentPaths = endNodeToItsForwardLinks.get(parent);
+                Paths childPaths = new Paths();
+                if(parentPaths != null && parentPaths.getPaths() !=null && parentPaths.getPaths().size() >0) {
+                  for (Path path : parentPaths.getPaths()) {
+                    childPaths.addPath(path.clone().add(childTuple));
+                  }
+                }
+                endNodeToItsForwardLinks.put(childTuple.getString(this.toField), childPaths);
+              } else {
+                // adding only child now. Earlier it was (parent, child)
+                Path p = Path.getInstance(Stream.of(childTuple)
+                        .collect(Collectors.toCollection(ArrayList<Tuple>::new)));
+                endNodeToItsForwardLinks.put(childTuple.getString(this.toField), Paths.getInstance(p));
+              }
+            }
+          }
+        }
+
         if(!dst.equals(parent)) {
-          endNodeToItsLinks.remove(parent);
+          endNodeToItsForwardLinks.remove(parent);
         }
       }
       parentNodes.clear();
       // newParents.removeAll(allVisited);
       newParents.remove(dst);
+      newParents.remove(src);
       parentNodes.addAll(newParents);
     }
 
-    this.paths = endNodeToItsLinks.get(dst);
+    System.out.println("ForwardLinks:" + endNodeToItsForwardLinks);
+    // System.out.println("BackwardLinks:" + endNodeToItsBackwardLinks);
+    this.paths = endNodeToItsForwardLinks.get(dst);  // endNodeToItsForwardLinks.get(dst);
+    System.out.println(this.paths);
     this.pathsIt = paths.getPaths().iterator();
   }
 
-  private HashSet<Tuple> openAndReadStream(CloudSolrStream stream) {
+  private HashMap<String, HashSet<Tuple>> openAndReadStream(HashSet<String> srcNodes, CloudSolrStream stream) {
+    HashMap<String, HashSet<Tuple>> srcNodeToEdgeMap = new HashMap<String, HashSet<Tuple>>();
     HashSet<Tuple> edges = new HashSet<Tuple>();
     try {
       stream.open();
@@ -217,12 +358,23 @@ public class PathsStreamingExpression extends TupleStream implements Expressible
           this.currentDepth++;
           break BATCH;
         }
-        edges.add(tuple);
+
+        String fromNode = tuple.getString(this.fromField);
+        String toNode = tuple.getString(this.toField);
+        String srcNode = (srcNodes.contains(fromNode)) ? fromNode : toNode;
+        if(!srcNodeToEdgeMap.containsKey(srcNode)) {
+          HashSet<Tuple> list = new HashSet<Tuple>();
+          list.add(tuple);
+          srcNodeToEdgeMap.put(srcNode, list);
+        } else {
+          srcNodeToEdgeMap.get(srcNode).add(tuple);
+        }
+        // edges.add(tuple);
       }
     } catch (Exception e) {
       throw new RuntimeException(e);
     }
-    return edges;
+    return srcNodeToEdgeMap;
   }
 
   private CloudSolrStream constructStream(HashSet<String> srcNodes) throws IOException {
@@ -231,7 +383,15 @@ public class PathsStreamingExpression extends TupleStream implements Expressible
     StringBuffer sb = new StringBuffer();
     for(String srcNode: srcNodes) {
       sb.append(this.fromField + ":");
-      sb.append(srcNode);
+      sb.append('"'+srcNode+'"');
+      sb.append(" OR ");
+    }
+    // int start = sb.lastIndexOf(" OR ");
+    // sb.replace(start, start + 4, "");
+
+    for(String srcNode: srcNodes) {
+      sb.append(this.toField + ":");
+      sb.append('"'+srcNode+'"');
       sb.append(" OR ");
     }
     int start = sb.lastIndexOf(" OR ");

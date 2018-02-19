@@ -24,6 +24,11 @@ public class Path implements  Cloneable {
         return this;
     }
 
+    public Path addAll(List<Tuple> tuples) {
+        nodes.addAll(tuples);
+        return this;
+    }
+
     public Path clone() {
         Path p = new Path();
         p.nodes.addAll(this.nodes);
